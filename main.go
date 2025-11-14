@@ -73,7 +73,7 @@ func main() {
 
 	// Public
 	r.GET("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "Library API - Running on Cloud Run")
+		c.String(http.StatusOK, "Library API - Running on Cloud Run ..Please do not touch :))")
 	})
 	r.GET("/health", func(c *gin.Context) {
 		if err := db.Ping(); err != nil {

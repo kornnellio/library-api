@@ -75,6 +75,14 @@ func main() {
 	r.GET("/", func(c *gin.Context) {
 		c.String(http.StatusOK, "Library API - Running on Cloud Run")
 	})
+	r.GET("/health", func(c *gin.Context) {
+		if err := db.Ping(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "DB down"})
+			return
+		}
+		c.String(http.StatusOK, "OK")
+	})
+
 	r.POST("/register", register)
 	r.POST("/login", login)
 
@@ -85,13 +93,6 @@ func main() {
 	r.DELETE("/books/:id", deleteBook)
 
 	// Health check (required by Cloud Run)
-	r.GET("/healthz", func(c *gin.Context) {
-		if err := db.Ping(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "DB down"})
-			return
-		}
-		c.String(http.StatusOK, "OK")
-	})
 
 	// --- Graceful shutdown ---
 	srv := &http.Server{

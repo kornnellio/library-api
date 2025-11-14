@@ -7,6 +7,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: us-central1
+      REPO: library-api-repo
+      SERVICE: library-api
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,21 +22,22 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
+      - run: gcloud auth configure-docker $REGION-docker.pkg.dev
 
       - name: Build & Push
         run: |
-          IMAGE="us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/library-api-repo/library-api:latest"
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPO/$SERVICE:latest"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
       - name: Deploy
         run: |
-          gcloud run deploy library-api \
+          gcloud run deploy $SERVICE \
             --image "$IMAGE" \
-            --region us-central1 \
+            --region $REGION \
             --platform managed \
             --allow-unauthenticated \
             --port 8080 \
-            --add-cloudsql-instances "${{ secrets.GCP_PROJECT_ID }}:us-central1:library-db" \
+            --add-cloudsql-instances "$PROJECT_ID:$REGION:library-db" \
             --set-env-vars DATABASE_URL="${{ secrets.DATABASE_URL }}"

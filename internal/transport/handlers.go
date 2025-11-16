@@ -3,153 +3,187 @@ package transport
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
+	"library-api/internal/errors"
+	"library-api/internal/logger"
 	"library-api/internal/models"
-	"library-api/internal/repository"
+	"library-api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Handler holds all HTTP handlers and dependencies
 type Handler struct {
-	userRepo *repository.UserRepository
-	bookRepo *repository.BookRepository
+	userService *service.UserService
+	bookService *service.BookService
 }
 
 // NewHandler creates a new handler instance
-func NewHandler(userRepo *repository.UserRepository, bookRepo *repository.BookRepository) *Handler {
+func NewHandler(userService *service.UserService, bookService *service.BookService) *Handler {
 	return &Handler{
-		userRepo: userRepo,
-		bookRepo: bookRepo,
+		userService: userService,
+		bookService: bookService,
 	}
 }
 
 // Home handles the home endpoint
 func (h *Handler) Home(c *gin.Context) {
-	c.String(http.StatusOK, "Library API - Running on Cloud Run ..Please do not touch :))")
+	c.String(http.StatusOK, "Library API - Running on Cloud Run")
 }
 
 // Health handles the health check endpoint
 func (h *Handler) Health(c *gin.Context) {
-	// Health check logic can be added here (e.g., DB ping)
+	// Health check should verify database connectivity
+	// For now, just return OK - can be enhanced to check DB via service
 	c.String(http.StatusOK, "OK")
 }
 
 // Register handles user registration
 func (h *Handler) Register(c *gin.Context) {
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Warn("Invalid registration request", zap.Error(err))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
-	if err := h.userRepo.Create(req.Email, req.Password); err != nil {
-		// Check if it's a unique constraint violation (PostgreSQL error code 23505)
-		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "duplicate key") || strings.Contains(errStr, "23505") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+	if err := h.userService.Register(ctx, &req); err != nil {
+		log.Error("Registration failed", zap.Error(err), zap.String("email", req.Email))
+		respondError(c, err)
 		return
 	}
 
+	log.Info("User registered successfully", zap.String("email", req.Email))
 	c.JSON(http.StatusOK, gin.H{"message": "Registered successfully"})
 }
 
 // Login handles user login
 func (h *Handler) Login(c *gin.Context) {
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Warn("Invalid login request", zap.Error(err))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
-	user, err := h.userRepo.FindByEmail(req.Email)
+	user, err := h.userService.Login(ctx, &req)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+		log.Warn("Login failed", zap.String("email", req.Email))
+		respondError(c, err)
 		return
 	}
 
-	if err := h.userRepo.VerifyPassword(user.Password, req.Password); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
-		return
-	}
-
+	log.Info("User logged in successfully", zap.Int("user_id", user.ID))
 	c.JSON(http.StatusOK, gin.H{"message": "Login successful", "user_id": user.ID})
 }
 
 // GetBooks handles retrieving all books
 func (h *Handler) GetBooks(c *gin.Context) {
-	books, err := h.bookRepo.GetAll()
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
+	books, err := h.bookService.GetAll(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Error("Failed to retrieve books", zap.Error(err))
+		respondError(c, err)
 		return
 	}
+
 	c.JSON(http.StatusOK, books)
 }
 
 // CreateBook handles creating a new book
 func (h *Handler) CreateBook(c *gin.Context) {
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
 	var book models.Book
 	if err := c.ShouldBindJSON(&book); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Warn("Invalid book creation request", zap.Error(err))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
-	if err := h.bookRepo.Create(&book); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.bookService.Create(ctx, &book); err != nil {
+		log.Error("Failed to create book", zap.Error(err))
+		respondError(c, err)
 		return
 	}
 
+	log.Info("Book created", zap.Int("book_id", book.ID))
 	c.JSON(http.StatusCreated, book)
 }
 
 // UpdateBook handles updating an existing book
 func (h *Handler) UpdateBook(c *gin.Context) {
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
 	idStr := c.Param("id")
 	bookID, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid book ID"})
+		log.Warn("Invalid book ID", zap.String("id", idStr))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
 	var book models.Book
 	if err := c.ShouldBindJSON(&book); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Warn("Invalid book update request", zap.Error(err))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
-	if updateErr := h.bookRepo.Update(bookID, &book); updateErr != nil {
-		if updateErr.Error() == "book not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": updateErr.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": updateErr.Error()})
+	if err := h.bookService.Update(ctx, bookID, &book); err != nil {
+		log.Error("Failed to update book", zap.Error(err), zap.Int("book_id", bookID))
+		respondError(c, err)
 		return
 	}
 
+	log.Info("Book updated", zap.Int("book_id", bookID))
 	c.JSON(http.StatusOK, gin.H{"message": "Book updated"})
 }
 
 // DeleteBook handles deleting a book
 func (h *Handler) DeleteBook(c *gin.Context) {
+	ctx := c.Request.Context()
+	log := logger.GetLogger(c)
+
 	idStr := c.Param("id")
 	bookID, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid book ID"})
+		log.Warn("Invalid book ID", zap.String("id", idStr))
+		respondError(c, errors.ErrBadRequest)
 		return
 	}
 
-	if deleteErr := h.bookRepo.Delete(bookID); deleteErr != nil {
-		if deleteErr.Error() == "book not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": deleteErr.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": deleteErr.Error()})
+	if err := h.bookService.Delete(ctx, bookID); err != nil {
+		log.Error("Failed to delete book", zap.Error(err), zap.Int("book_id", bookID))
+		respondError(c, err)
 		return
 	}
 
+	log.Info("Book deleted", zap.Int("book_id", bookID))
 	c.JSON(http.StatusOK, gin.H{"message": "Book deleted"})
+}
+
+// respondError handles error responses consistently
+func respondError(c *gin.Context, err error) {
+	var appErr *errors.AppError
+	if e, ok := err.(*errors.AppError); ok {
+		appErr = e
+	} else {
+		appErr = errors.ErrInternalServerError
+	}
+
+	c.JSON(appErr.Code, gin.H{
+		"error": appErr.Message,
+	})
 }

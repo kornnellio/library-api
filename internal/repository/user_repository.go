@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -20,13 +21,13 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 // Create creates a new user with hashed password
-func (r *UserRepository) Create(email, password string) error {
+func (r *UserRepository) Create(ctx context.Context, email, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	_, err = r.db.Exec("INSERT INTO users (email, password) VALUES ($1, $2)", email, hash)
+	_, err = r.db.ExecContext(ctx, "INSERT INTO users (email, password) VALUES ($1, $2)", email, hash)
 	if err != nil {
 		return err
 	}
@@ -34,9 +35,9 @@ func (r *UserRepository) Create(email, password string) error {
 }
 
 // FindByEmail finds a user by email
-func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
+func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
 	var user models.User
-	err := r.db.QueryRow("SELECT id, email, password FROM users WHERE email=$1", email).
+	err := r.db.QueryRowContext(ctx, "SELECT id, email, password FROM users WHERE email=$1", email).
 		Scan(&user.ID, &user.Email, &user.Password)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

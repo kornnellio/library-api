@@ -2,54 +2,96 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"library-api/internal/config"
 	"library-api/internal/database"
+	"library-api/internal/logger"
+	"library-api/internal/middleware"
 	"library-api/internal/repository"
+	"library-api/internal/service"
 	"library-api/internal/transport"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func main() {
-	// Initialize database
-	if err := database.Connect(); err != nil {
-		log.Fatal("Failed to connect to database:", err)
+	// Load configuration
+	cfg := config.Load()
+
+	// Initialize logger
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "development"
 	}
-	defer database.Close()
+	if err := logger.Init(env); err != nil {
+		panic("Failed to initialize logger: " + err.Error())
+	}
+	defer logger.Sync()
+
+	// Set Gin mode based on environment
+	if env == "production" || env == "prod" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	// Initialize database
+	db, err := database.Connect(&cfg.Database, logger.Logger)
+	if err != nil {
+		logger.Logger.Fatal("Failed to connect to database", zap.Error(err))
+	}
+	defer db.Close()
 
 	// Create database tables
-	if err := database.CreateTables(); err != nil {
-		log.Fatal("Failed to create tables:", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.CreateTables(ctx); err != nil {
+		logger.Logger.Fatal("Failed to create tables", zap.Error(err))
 	}
 
 	// Initialize repositories
-	userRepo := repository.NewUserRepository(database.DB)
-	bookRepo := repository.NewBookRepository(database.DB)
+	userRepo := repository.NewUserRepository(db.DB)
+	bookRepo := repository.NewBookRepository(db.DB)
+
+	// Initialize services
+	userService := service.NewUserService(userRepo)
+	bookService := service.NewBookService(bookRepo)
 
 	// Initialize handlers
-	handler := transport.NewHandler(userRepo, bookRepo)
+	handler := transport.NewHandler(userService, bookService)
 
 	// Setup Gin router
-	r := gin.Default()
+	r := gin.New()
+
+	// Middleware
+	r.Use(gin.Recovery())
+	r.Use(logger.RequestIDMiddleware())
+	r.Use(logger.LoggerMiddleware())
+	r.Use(middleware.CORS())
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.RequestSizeLimit(1 << 20)) // 1MB limit
+
+	// Setup routes
 	handler.SetupRoutes(r)
 
 	// Setup HTTP server
 	srv := &http.Server{
-		Addr:    ":" + getPort(),
-		Handler: r,
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      r,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Server starting on :%s", getPort())
+		logger.Logger.Info("Server starting", zap.String("port", cfg.Server.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("Server failed:", err)
+			logger.Logger.Fatal("Server failed", zap.Error(err))
 		}
 	}()
 
@@ -58,22 +100,15 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
-	log.Println("Shutting down server...")
+	logger.Logger.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
 
-	log.Println("Server stopped")
-}
-
-func getPort() string {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	return port
+	logger.Logger.Info("Server stopped")
 }

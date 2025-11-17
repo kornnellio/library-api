@@ -41,4 +41,5 @@ jobs:
             --port 8080 \
             --add-cloudsql-instances "$PROJECT_ID:us-central1:library-db" \
             --set-env-vars DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            --mount-secret=firebase-key=firebase-key:latest
+            --set-secrets FIREBASE_KEY=firebase-key:latest
+          

@@ -15,7 +15,7 @@ import (
 	"firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
-	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/option"
 )
@@ -62,7 +62,6 @@ func firebaseAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid token"})
 			return
 		}
-
 		c.Set("uid", token.UID)
 		c.Next()
 	}
@@ -70,12 +69,11 @@ func firebaseAuthMiddleware() gin.HandlerFunc {
 
 func main() {
 	// === Firebase Auth ===
-	keyPath := "/secrets/firebase-key"
-	keyBytes, err := os.ReadFile(keyPath)
-	if err != nil {
-		log.Fatal("Firebase key not found:", err)
+	keyJSON := os.Getenv("FIREBASE_KEY")
+	if keyJSON == "" {
+		log.Fatal("FIREBASE_KEY not set")
 	}
-	opt := option.WithCredentialsJSON(keyBytes)
+	opt := option.WithCredentialsJSON([]byte(keyJSON))
 	app, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
 		log.Fatal("Firebase init failed:", err)
@@ -85,7 +83,7 @@ func main() {
 		log.Fatal("Firebase Auth failed:", err)
 	}
 
-	// --- DB Connection (pgx) ---
+	// --- DB Connection ---
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		log.Fatal("DATABASE_URL is required")
@@ -194,20 +192,18 @@ func createTables() error {
 	return err
 }
 
-// === AUTH (No JWT yet) ===
+// === AUTH ===
 func register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 10)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Hash failed"})
 		return
 	}
-
 	_, err = db.Exec("INSERT INTO users (email, password) VALUES ($1, $2)", req.Email, hash)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already exists"})
@@ -222,7 +218,6 @@ func login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	var user User
 	err := db.QueryRow("SELECT id, password FROM users WHERE email=$1", req.Email).Scan(&user.ID, &user.Password)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)) != nil {
@@ -240,7 +235,6 @@ func getBooks(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-
 	var books []Book
 	for rows.Next() {
 		var b Book

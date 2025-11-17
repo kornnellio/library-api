@@ -12,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/auth"
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/api/option"
 )
 
 // === MODELS ===
@@ -42,14 +45,51 @@ type LoginRequest struct {
 
 // === GLOBALS ===
 var db *sql.DB
+var firebaseAuth *auth.Client
+
+// === Firebase Auth Middleware ===
+func firebaseAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" || len(authHeader) < 7 {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Missing token"})
+			return
+		}
+		idToken := authHeader[7:] // "Bearer "
+
+		token, err := firebaseAuth.VerifyIDToken(context.Background(), idToken)
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid token"})
+			return
+		}
+
+		c.Set("uid", token.UID)
+		c.Next()
+	}
+}
 
 func main() {
+	// === Firebase Auth ===
+	keyPath := "/secrets/firebase-key"
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		log.Fatal("Firebase key not found:", err)
+	}
+	opt := option.WithCredentialsJSON(keyBytes)
+	app, err := firebase.NewApp(context.Background(), nil, opt)
+	if err != nil {
+		log.Fatal("Firebase init failed:", err)
+	}
+	firebaseAuth, err = app.Auth(context.Background())
+	if err != nil {
+		log.Fatal("Firebase Auth failed:", err)
+	}
+
 	// --- DB Connection (pgx) ---
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		log.Fatal("DATABASE_URL is required")
 	}
-	var err error
 	db, err = sql.Open("pgx", connStr)
 	if err != nil {
 		log.Fatal("DB connection failed:", err)
@@ -59,8 +99,8 @@ func main() {
 	// Ping DB
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		log.Fatal("DB ping failed:", err)
+	if pingErr := db.PingContext(ctx); pingErr != nil {
+		log.Fatal("DB ping failed:", pingErr)
 	}
 
 	// Create tables
@@ -86,13 +126,15 @@ func main() {
 	r.POST("/register", register)
 	r.POST("/login", login)
 
-	// CRUD (no auth yet)
-	r.GET("/books", getBooks)
-	r.POST("/books", createBook)
-	r.PUT("/books/:id", updateBook)
-	r.DELETE("/books/:id", deleteBook)
-
-	// Health check (required by Cloud Run)
+	// === PROTECTED CRUD ===
+	protected := r.Group("/books")
+	protected.Use(firebaseAuthMiddleware())
+	{
+		protected.GET("", getBooks)
+		protected.POST("", createBook)
+		protected.PUT("/:id", updateBook)
+		protected.DELETE("/:id", deleteBook)
+	}
 
 	// --- Graceful shutdown ---
 	srv := &http.Server{

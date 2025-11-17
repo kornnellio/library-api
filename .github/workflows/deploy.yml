@@ -33,11 +33,12 @@ jobs:
 
       - name: Deploy
         run: |
-          gcloud run deploy $SERVICE \
+          gcloud run deploy library-api \
             --image "$IMAGE" \
-            --region $REGION \
+            --region us-central1 \
             --platform managed \
             --allow-unauthenticated \
             --port 8080 \
-            --add-cloudsql-instances "$PROJECT_ID:$REGION:library-db" \
-            --set-env-vars DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            --add-cloudsql-instances "$PROJECT_ID:us-central1:library-db" \
+            --set-env-vars DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            --mount-secret=firebase-key=firebase-key:latest

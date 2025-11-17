@@ -82,7 +82,9 @@ bash:
 
 URL=https://library-api-72471622130.us-central1.run.app
     
-
+### test wrapped on code : 
+## download test_api_coll.py as test.py and run it to get the token and test the endpoints: 
+curl -sSL https://raw.githubusercontent.com/kornnellio/library-api/main/test_api_coll.py -o test.py && python3 test.py
 
 
 # 1. Health Check

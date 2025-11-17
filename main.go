@@ -68,6 +68,7 @@ func firebaseAuthMiddleware() gin.HandlerFunc {
 }
 
 func main() {
+	//-----------------------------
 	// === Firebase Auth ===
 	keyJSON := os.Getenv("FIREBASE_KEY")
 	if keyJSON == "" {

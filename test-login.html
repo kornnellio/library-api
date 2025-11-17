@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Firebase Login - Library API</title>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+</head>
+<body>
+<h2>Login to Test API</h2>
+<button onclick="login()">Login with Google</button>
+<pre id="output" style="margin-top:20px; background:#f0f0f0; padding:15px; font-family:monospace;"></pre>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCsKdpNiIheRu8FMfqsfTxgt41S1Ryj0QE",
+        authDomain: "library-api-2025.firebaseapp.com",
+        projectId: "library-api-2025"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    function login() {
+        firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider())
+            .then(result => result.user.getIdToken())
+            .then(token => {
+                const out = document.getElementById('output');
+                out.textContent = 'TOKEN (copied to clipboard):\n\n' + token;
+                navigator.clipboard.writeText(token);
+                alert('Token copied! Use in curl.');
+            })
+            .catch(err => {
+                document.getElementById('output').textContent = 'Error: ' + err.message;
+            });
+    }
+</script>
+</body>
+</html>

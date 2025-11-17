@@ -1,3 +1,6 @@
 library-api-2025-firebase-adminsdk-fbsvc-0ca06ffbbc.json
-.idea
+.idea/
+*.iml
+bfg.jar
+firebase-key.json
 

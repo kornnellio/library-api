@@ -81,62 +81,69 @@ curl http://localhost:8080/books
 bash: 
 
 URL=https://library-api-72471622130.us-central1.run.app
-    
+
+
 ### test wrapped on code : 
 ## download test_api_coll.py as test.py and run it to get the token and test the endpoints: 
 curl -sSL https://raw.githubusercontent.com/kornnellio/library-api/main/test_api_coll.py -o test.py && python3 test.py
 
+### Or :    
 
-# 1. Health Check
+### test with curl 
 
+# === CONFIG ===
+URL="https://library-api-72471622130.us-central1.run.app"
+
+# === 1. Get your Firebase token (ONE TIME) ===
+echo "Open this → click Login → copy token:"
+echo "https://kornnellio.github.io/library-api/test-login.html"
+read -p "Paste your Firebase ID Token: " TOKEN
+echo
+
+
+# ===  Public endpoints (no token) ===
+echo "Health check:"
 curl -s $URL/health
+echo -e "\n"
 
-# 2. Home
+echo "Home page:"
+curl -s $URL | head -c 100
+echo -e "\n"
 
-curl -s $URL
-
-
-# 3. Register
-
+# === 3. Register a test user (optional) ===
+echo "Register test user:"
 curl -s -X POST $URL/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"123456"}'
+  -d '{"email":"test@kornnellio.ro","password":"123456"}' | jq
+echo
 
+# === 4. PROTECTED ENDPOINTS (with token) ===
+echo "List your books:"
+curl -s -H "Authorization: Bearer $TOKEN" $URL/books | jq
+echo
 
-# 4. Login
-
-curl -s -X POST $URL/login \
+echo "Add a book:"
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"123456"}'
+  -d '{"title":"Dune","author":"Frank Herbert"}' \
+  $URL/books | jq
+echo
 
+echo "List again (should show Dune):"
+curl -s -H "Authorization: Bearer $TOKEN" $URL/books | jq
+echo
 
-# 5. Get Books (empty)
+# === 5. Update & Delete (get ID from previous output) ===
+echo "Replace 123 with real book ID from above"
+read -p "Book ID to update/delete: " BOOK_ID
 
-curl -s $URL/books
-
-
-# 6. Create Book
-
-curl -s -X POST $URL/books \
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title":"newBook","author":"newAuthor"}'
+  -d '{"title":"Dune (Updated)","author":"Herbert"}' \
+  $URL/books/$BOOK_ID | jq
 
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  $URL/books/$BOOK_ID | jq
 
-# 7. Get Books 
-
-curl -s $URL/books
-
-
-# 8. Update Book with id = x
-
-curl -s -X PUT $URL/books/x \
-  -H "Content-Type: application/json" \
-  -d '{"title":"newBookUpdated","author":"Orwell, George"}'
-
-
-# 9. Delete Book with id = x
-
-curl -s -X DELETE $URL/books/x
-
-
-
+echo "Final list (should be empty):"
+curl -s -H "Authorization: Bearer $TOKEN" $URL/books | jq
